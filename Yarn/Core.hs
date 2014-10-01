@@ -5,12 +5,18 @@ import Prelude hiding (id, (.))
 import Control.Applicative
 import Control.Category
 import Control.Monad
+import Control.Arrow
 import Data.Time.Clock
 import Debug.Trace
 
 --------------------------------------------------------------------------------
 -- Yarn instances
 --------------------------------------------------------------------------------
+instance Monad m => Arrow (Yarn m) where
+    arr = yarn
+    first y = Yarn $ \dt (b,d) -> do Output b' y' <- stepYarn y dt b
+                                     return $ Output (b', d) (first y')
+
 instance Monad m => Applicative (Yarn m a) where
     pure = pureYarn . const
     wf <*> wa = Yarn $ \dt a -> do Output f wf' <- stepYarn wf dt a
@@ -90,7 +96,10 @@ timeYarnM f = Yarn $ \dt a -> do b <- f dt a
 -- Help inspecting Yarn balls
 --------------------------------------------------------------------------------
 traceYarn :: (Show a, Monad m) => Yarn m a a
-traceYarn = yarn $ \a -> trace (show a) a
+traceYarn = traceYarnWith ""
+
+traceYarnWith :: (Show a, Monad m) => String -> Yarn m a a
+traceYarnWith str = yarn $ \a -> trace (str ++ show a) a
 
 testYarn :: Show b => Yarn IO () b -> IO b
 testYarn = testYarnTill 1000000000

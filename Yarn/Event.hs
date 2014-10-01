@@ -1,5 +1,7 @@
 module Yarn.Event (
     Event,
+    -- * Combining events and values
+    orE,
     -- * Generating events from values
     triggerTrue,
     triggerJust,
@@ -24,6 +26,18 @@ module Yarn.Event (
 
 import Yarn.Core
 import Control.Applicative
+--------------------------------------------------------------------------------
+-- Combining value Yarn and event Yarn
+--------------------------------------------------------------------------------
+-- | Produces values from the first Yarn unless the second produces event
+-- values and if so, produces the values of those events.
+orE :: Monad m => Yarn m a b -> Yarn m a (Event b) -> Yarn m a b
+orE y ye = Yarn $ \dt a -> do
+    Output b y'  <- stepYarn y dt a
+    Output e ye' <- stepYarn ye dt a
+    return $ case e of
+        NoEvent  -> Output b $ orE y' ye'
+        Event b' -> Output b' $ orE y' ye'
 --------------------------------------------------------------------------------
 -- Generating events from values
 --------------------------------------------------------------------------------
@@ -76,7 +90,7 @@ hold w initial = Yarn $ \dt x -> do
 --------------------------------------------------------------------------------
 -- Time based events
 --------------------------------------------------------------------------------
--- | Produces values until t seconds have passed.
+-- | Produces events of input values until t seconds have passed.
 -- Note that as soon as the Yarn has run for a number of seconds >= t it stops
 -- streaming events so the actual value of the Yarn at t is not guaranteed to
 -- be produced.
@@ -86,12 +100,12 @@ before t = timeYarn $ \dt a ->
     then Output (Event a) (before $ t - dt)
     else Output NoEvent never
 
--- | Produces after t seconds.
+-- | Produces events of input values after t seconds.
 -- Note that the Yarn is not guaranteed to start producing exactly at t,
 -- only at some very small dt after t, so the value exactly at t most
 -- likely will not be produced. You can see this by testing the Yarn:
 -- @
--- after 2 ~> time
+-- time ~> after 2
 -- @
 -- which produces 2.000015999995771 as its first
 -- value
@@ -101,9 +115,11 @@ after t = timeYarn $ \dt a ->
     then Output (Event a) forever
     else Output NoEvent (after $ t - dt)
 
+-- | Never produces any event values.
 never :: Monad m => Yarn m a (Event a)
 never = pure NoEvent
 
+-- | Produces events of input values forever, always.
 forever :: Monad m => Yarn m a (Event a)
 forever = valYarn $ \a -> Output (Event a) forever
 --------------------------------------------------------------------------------
@@ -124,7 +140,7 @@ untilE w1 w2 = Yarn $ \dt a -> do
                       return $ Output (Event b) (w1' `untilE` w2')
         _  -> return $ Output mb w2'
 
-untilWithE :: Monad m => Yarn m a b -> Yarn m a (Event b) -> (b -> Yarn m a b)
+untilWithE :: Monad m => Yarn m a b -> Yarn m a (Event c) -> (c -> Yarn m a b)
            -> Yarn m a b
 untilWithE y ey f = Yarn $ \dt a -> do
     Output mb ey' <- stepYarn ey dt a
@@ -164,6 +180,11 @@ instance Num a => Num (Event a) where
     abs = fmap abs
     signum = fmap signum
     fromInteger = pure . fromInteger
+
+instance Alternative Event where
+    empty = NoEvent
+    (<|>) (Event e) _ = Event e
+    (<|>) NoEvent e = e
 
 instance Applicative Event where
     pure = Event
