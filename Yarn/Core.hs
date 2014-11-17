@@ -1,3 +1,4 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
 module Yarn.Core where
 
@@ -78,7 +79,7 @@ pureYarn f = valYarn $ \a -> Output (f a) (pureYarn f)
 valYarn :: Monad m => (a -> Output m a b) -> Yarn m a b
 valYarn f = timeYarn $ \_ a -> f a
 
-timeYarn :: Monad m => (Time -> a -> Output m a b) -> Yarn m a b
+timeYarn :: (Monad m, RealFloat t) => (t -> a -> Output m a b) -> Yarn m a b
 timeYarn f = Yarn $ \dt a -> return $ f dt a
 --------------------------------------------------------------------------------
 -- Constructing effectful Yarn
@@ -89,7 +90,7 @@ yarnM = valYarnM . const
 valYarnM :: Monad m => (a -> m b) -> Yarn m a b
 valYarnM = timeYarnM . const
 
-timeYarnM :: Monad m => (Time -> a -> m b) -> Yarn m a b
+timeYarnM :: (RealFloat t, Monad m) => (t -> a -> m b) -> Yarn m a b
 timeYarnM f = Yarn $ \dt a -> do b <- f dt a
                                  return $ Output b $ timeYarnM f
 --------------------------------------------------------------------------------
@@ -102,9 +103,9 @@ traceYarnWith :: (Show a, Monad m) => String -> Yarn m a a
 traceYarnWith str = yarn $ \a -> trace (str ++ show a) a
 
 testYarn :: Show b => Yarn IO () b -> IO b
-testYarn = testYarnTill 1000000000
+testYarn = testYarnTill (1000000000 :: Double)
 
-testYarnTill :: Show b => Time -> Yarn IO () b -> IO b
+testYarnTill :: (Show b, RealFloat t) => t -> Yarn IO () b -> IO b
 testYarnTill secs w = do
     t <- getCurrentTime
     loopYarn t 0 w
@@ -119,18 +120,18 @@ testYarnTill secs w = do
 --------------------------------------------------------------------------------
 -- Running Yarn
 --------------------------------------------------------------------------------
-execYarn :: (Monad m, Functor m) => Yarn m a b -> Time -> a -> m b
+execYarn :: (Monad m, Functor m, RealFloat t) => Yarn m a b -> t -> a -> m b
 execYarn w dt a = fmap outVal $ stepYarn w dt a
 
-stepYarn :: Monad m => Yarn m a b -> Time -> a -> m (Output m a b)
-stepYarn (Yarn w) dt a = w dt a
+stepYarn :: (RealFloat t, Monad m) => Yarn m a b -> t -> a -> m (Output m a b)
+stepYarn (Yarn w) dt a = w (realToFrac dt) a
 --------------------------------------------------------------------------------
 -- Yarn basics
 --------------------------------------------------------------------------------
-time :: Monad m => Yarn m a Time
+time :: (Monad m, RealFloat t) => Yarn m a t
 time = timeFrom 0
 
-timeFrom :: Monad m => Double -> Yarn m a Time
+timeFrom :: RealFloat t => Monad m => t -> Yarn m a t
 timeFrom t = Yarn $ \dt _ ->
     let t' = t + dt in
     return $ Output t' (timeFrom t')
@@ -139,6 +140,5 @@ data Output m a b = Output { outVal  :: b
                            , outYarn :: (Yarn m a b)
                            }
 
-data Yarn m a b = Yarn (Time -> a -> m (Output m a b))
-
-type Time = Double
+data Yarn m a b where
+    Yarn :: RealFloat t => (t -> a -> m (Output m a b)) -> Yarn m a b

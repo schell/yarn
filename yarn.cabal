@@ -62,8 +62,8 @@ library
 
   -- Other library packages from which modules are imported.
   build-depends:       base >=4.7 && <4.8,
-                       time >=1.4 && <1.5,
-                       linear >=1.10 && <1.11
+                       time -any,
+                       linear -any
 
   -- Directories containing source files.
   -- hs-source-dirs:

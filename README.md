@@ -1,6 +1,10 @@
 Yarn
 ====
-Yarn is the softest, squishiest FRP there is.
+Yarn is the softest, squishiest temporal logic there is. It is pull-based FRP 
+library for varying data over time - much like wires or netwire. In fact the
+types are almost identical to wires and as such the implementation is similar.
+Differences start to appear in the way signals are combined, switched and 
+chained together.
 
 Yarn aims to be well documented and to have easy to follow function names, 
 operators and patterns. This is very alpha, but works! Examples, tutorials and 

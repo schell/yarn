@@ -75,13 +75,13 @@ easeInOut ein eout start end dur =
 linear :: Tween m f
 linear = tween $ \c t b -> c * t + b
 
-type TweenDouble = (Monad m) => Double -> Double -> Time -> Yarn m a (Event Double)
-type Tween m f = (Monad m, Num f, Floating f, Fractional f) => f -> f -> Time -> Yarn m () (Event f)
+type TweenDouble = (Monad m, RealFloat t) => Double -> Double -> t -> Yarn m a (Event Double)
+type Tween m f = (Monad m, Num f, Floating f, Fractional f, RealFloat t) => f -> f -> t -> Yarn m () (Event f)
 
 -- | Applies a tweening function `f` in order to interpolate a value from
 -- `start` to `end` over `dur`.
-tween :: (Applicative f1, Applicative f, Num s, Monad m1, Monad m, Fractional c)
-      => (f1 s -> Yarn m a1 c -> f s -> Yarn m1 a b) -> s -> s -> Time
+tween :: (Applicative f1, Applicative f, Num s, Monad m1, Monad m, Fractional c, RealFloat t)
+      => (f1 s -> Yarn m a1 c -> f s -> Yarn m1 a b) -> s -> s -> t
       -> Yarn m1 a (Event b)
 tween f start end dur = (f c t b) ~> before dur
     where c = pure $ end - start
@@ -89,5 +89,5 @@ tween f start end dur = (f c t b) ~> before dur
           b = pure start
 
 -- | Varies 0.0 to 1.0 linearly for duration `t` and 1.0 after `t`.
-timeAsPercentageOf :: Monad m => Time -> Yarn m a Double
+timeAsPercentageOf :: (RealFloat t, Monad m) => t -> Yarn m a t
 timeAsPercentageOf t = liftA2 min 1 (time / pure t)

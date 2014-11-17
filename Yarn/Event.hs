@@ -94,7 +94,7 @@ hold w initial = Yarn $ \dt x -> do
 -- Note that as soon as the Yarn has run for a number of seconds >= t it stops
 -- streaming events so the actual value of the Yarn at t is not guaranteed to
 -- be produced.
-before :: Monad m => Time -> Yarn m a (Event a)
+before :: (RealFloat t, Monad m) => t -> Yarn m a (Event a)
 before t = timeYarn $ \dt a ->
     if t - dt > 0
     then Output (Event a) (before $ t - dt)
@@ -109,7 +109,7 @@ before t = timeYarn $ \dt a ->
 -- @
 -- which produces 2.000015999995771 as its first
 -- value
-after :: Monad m => Time -> Yarn m a (Event a)
+after :: (RealFloat t, Monad m) => t -> Yarn m a (Event a)
 after t = timeYarn $ \dt a ->
     if t - dt <= 0
     then Output (Event a) forever
