@@ -50,7 +50,6 @@ library
   -- Modules exported by the library.
   exposed-modules:     Yarn,
                        Yarn.Core,
-                       Yarn.Control,
                        Yarn.Event,
                        Yarn.Tween
 
@@ -61,7 +60,7 @@ library
   other-extensions:    BangPatterns, FlexibleContexts, Rank2Types
 
   -- Other library packages from which modules are imported.
-  build-depends:       base >=4.7 && <4.8,
+  build-depends:       base >=4.7 && <4.9,
                        time -any,
                        linear -any
 
@@ -71,3 +70,11 @@ library
   -- Base language which the package is written in.
   default-language:    Haskell2010
 
+  ghc-options:         -rtsopts -fprof-auto -fprof-cafs
+
+executable example
+  default-language:    Haskell2010
+  main-is:             Yarn/Example.hs
+  build-depends:       base >=4.7 && < 4.9,
+                       time,
+                       ekg

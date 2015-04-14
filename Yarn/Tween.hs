@@ -34,35 +34,35 @@ easeOutPow power = tween $ \c t b ->
         i  = if power `mod` 2 == 1 then 1 else -1
     in c' * ((t'^power) + i) + b
 
-easeInSine :: Tween m f
+easeInSine :: Floating f => Tween m f
 easeInSine = tween $ \c t b -> let cos' = cos (t * (pi / 2))
                                in -c * cos' + c + b
 
-easeOutSine :: Tween m f
+easeOutSine :: Floating f => Tween m f
 easeOutSine = tween $ \c t b -> let cos' = cos (t * (pi / 2)) in c * cos' + b
 
-easeInOutSine :: Tween m f
+easeInOutSine :: Floating f => Tween m f
 easeInOutSine = tween $ \c t b -> let cos' = cos (pi * t)
                                   in (-c / 2) * (cos' - 1) + b
 
-easeInExpo :: Tween m f
+easeInExpo :: Floating f => Tween m f
 easeInExpo = tween $ \c t b -> let e = 10 * (t - 1) in c * (2**e) + b
 
-easeOutExpo :: Tween m f
+easeOutExpo :: Floating f => Tween m f
 easeOutExpo = tween $ \c t b -> let e = -10 * t in c * (-(2**e) + 1) + b
 
-easeInOutExpo :: Tween m f
+easeInOutExpo :: Floating f => Tween m f
 easeInOutExpo = easeInOut easeInExpo easeOutExpo
 
-easeInCirc :: Tween m f
+easeInCirc :: Floating f => Tween m f
 easeInCirc = tween $ \c t b -> let s = sqrt (1 - t*t) in -c * (s - 1) + b
 
-easeOutCirc :: Tween m f
+easeOutCirc :: Floating f => Tween m f
 easeOutCirc = tween $ \c t b -> let t' = (t - 1)
                                     s  = sqrt (1 - t'*t')
                                 in c * s + b
 
-easeInOutCirc :: Tween m f
+easeInOutCirc :: Floating f => Tween m f
 easeInOutCirc = easeInOut easeInCirc easeOutCirc
 
 easeInOut :: Tween m f -> Tween m f -> Tween m f
@@ -75,19 +75,18 @@ easeInOut ein eout start end dur =
 linear :: Tween m f
 linear = tween $ \c t b -> c * t + b
 
-type TweenDouble = (Monad m, RealFloat t) => Double -> Double -> t -> Yarn m a (Event Double)
-type Tween m f = (Monad m, Num f, Floating f, Fractional f, RealFloat t) => f -> f -> t -> Yarn m () (Event f)
+type Tween m f = (Monad m, Ord f, Num f, Fractional f)
+               => f -> f -> f -> Yarn f m () (Event f)
 
--- | Applies a tweening function `f` in order to interpolate a value from
--- `start` to `end` over `dur`.
-tween :: (Applicative f1, Applicative f, Num s, Monad m1, Monad m, Fractional c, RealFloat t)
-      => (f1 s -> Yarn m a1 c -> f s -> Yarn m1 a b) -> s -> s -> t
-      -> Yarn m1 a (Event b)
+---- | Applies a tweening function `f` in order to interpolate a value from
+---- `start` to `end` over `dur`.
+tween :: (Applicative f1, Applicative f, Num s, Monad m1, Monad m, Num t, Ord t, Fractional t)
+      => (f1 s -> Yarn t m a1 t -> f s -> Yarn t m1 a b) -> s -> s -> t -> Yarn t m1 a (Event b)
 tween f start end dur = (f c t b) ~> before dur
     where c = pure $ end - start
-          t = timeAsPercentageOf dur ~> pureYarn realToFrac
+          t = timeAsPercentageOf dur
           b = pure start
 
 -- | Varies 0.0 to 1.0 linearly for duration `t` and 1.0 after `t`.
-timeAsPercentageOf :: (RealFloat t, Monad m) => t -> Yarn m a t
+timeAsPercentageOf :: (Monad m, Ord t, Num t, Fractional t) => t -> Yarn t m a t
 timeAsPercentageOf t = liftA2 min 1 (time / pure t)

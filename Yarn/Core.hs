@@ -1,5 +1,6 @@
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE FlexibleContexts #-}
 module Yarn.Core where
 
 import Prelude hiding (id, (.))
@@ -8,23 +9,27 @@ import Control.Category
 import Control.Monad
 import Control.Arrow
 import Data.Time.Clock
+import Data.Typeable
 import Debug.Trace
 
 --------------------------------------------------------------------------------
 -- Yarn instances
 --------------------------------------------------------------------------------
-instance Monad m => Arrow (Yarn m) where
-    arr = yarn
-    first y = Yarn $ \dt (b,d) -> do Output b' y' <- stepYarn y dt b
-                                     return $ Output (b', d) (first y')
+instance Monad m => Arrow (Yarn t m) where
+    arr = Yarn
+    first (Yarn y) = Yarn $ \(b,d) -> (y b, d)
+    first y = Yarntaom $ \dt (b,d) ->
+                  stepYarn y dt b >>= \(Output c y') ->
+                      return $ Output (c, d) (first y')
 
-instance Monad m => Applicative (Yarn m a) where
-    pure = pureYarn . const
-    wf <*> wa = Yarn $ \dt a -> do Output f wf' <- stepYarn wf dt a
-                                   Output b wa' <- stepYarn wa dt a
+instance Monad m => Applicative (Yarn t m a) where
+    pure = Yarn . const
+    wf <*> wa = Yarntaom $ \dt a ->
+                    stepYarn wf dt a >>= \(Output f wf') ->
+                        stepYarn wa dt a >>= \(Output b wa') ->
                                    return $ Output (f b) (wf' <*> wa')
 
-instance (Monad m, Floating b) => Floating (Yarn m a b) where
+instance (Monad m, Floating b) => Floating (Yarn t m a b) where
     pi = pure pi
     exp = fmap exp
     log = fmap log
@@ -32,11 +37,11 @@ instance (Monad m, Floating b) => Floating (Yarn m a b) where
     cos = fmap cos; cosh = fmap cosh; acos = fmap acos; acosh = fmap acosh
     atan = fmap atan; atanh = fmap atanh
 
-instance (Monad m, Fractional b) => Fractional (Yarn m a b) where
+instance (Monad m, Fractional b) => Fractional (Yarn t m a b) where
     (/) = liftA2 (/)
     fromRational = pure . fromRational
 
-instance (Monad m, Num b) => Num (Yarn m a b) where
+instance (Monad m, Num b) => Num (Yarn t m a b) where
     (+) = liftA2 (+)
     (-) = liftA2 (-)
     (*) = liftA2 (*)
@@ -44,68 +49,73 @@ instance (Monad m, Num b) => Num (Yarn m a b) where
     signum = fmap signum
     fromInteger = pure . fromInteger
 
-instance Monad m => Category (Yarn m) where
-    id  = pureYarn id
+instance Monad m => Category (Yarn t m) where
+    id  = Yarn id
     (.) = (<~)
 
-instance Monad m => Functor (Yarn m a) where
-    fmap f (Yarn w) = Yarn $ \dt a -> liftM (fmap f) $ w dt a
+instance Monad m => Functor (Yarn t m a) where
+    fmap f (Yarn y) = Yarn $ f . y
+    fmap f (Yarnt y) = Yarnt $ f . y
+    fmap f (Yarnta y) = Yarnta $ \dt a -> f $ y dt a
+    fmap f (Yarntao y) = Yarntao $ \dt a -> fmap f $ y dt a
+    fmap f (Yarntaom y) = Yarntaom $ \dt a -> liftM (fmap f) $ y dt a
 
-instance Monad m => Functor (Output m a) where
+instance Monad m => Functor (Output t m a) where
     fmap f (Output val w) = Output (f val) (fmap f w)
+--------------------------------------------------------------------------------
+-- Feedback
+--------------------------------------------------------------------------------
+-- Delays the yarn by one step using the given value as the current step's
+-- produced value.
+delayWith :: Monad m => Yarn t m a b -> b -> Yarn t m a b
+delayWith y start = Yarntao $ \dt a -> Output start $ delay dt a y
+
+-- | Delays a yarn by one step using the given time and value as the first
+-- inputs.
+delay :: Monad m => t -> a -> Yarn t m a b -> Yarn t m a b
+delay dt a y = Yarntaom $ \dt' a' -> {-# SCC "delay-1" #-}stepYarn y dt a >>=
+    {-# SCC "delay-2" #-}\(Output b y') ->
+        {-# SCC "delay-3" #-}return $ Output b $ delay dt' a' y'
+
+--delayWith b y =
+--    let go dt' a' y' = yarnM $ \dt'' a'' -> do
+--                              Output b' y'' <- stepYarn y' dt' a'
+--                              return $ Output b' $ go dt'' a'' y''
+--    in yarnM $ \dt a -> return $ Output b $ go dt a y
 --------------------------------------------------------------------------------
 -- Composing Yarn
 --------------------------------------------------------------------------------
 -- | Plugs the output value of w2 into the input value of w1.
-(<~) :: Monad m => Yarn m b c -> Yarn m a b -> Yarn m a c
+(<~) :: Monad m => Yarn t m b c -> Yarn t m a b -> Yarn t m a c
 (<~) = flip (~>)
 infixl 1 <~
 
 -- | Plugs the output value of w1 into the input value of w2.
-(~>) :: Monad m => Yarn m a b -> Yarn m b c -> Yarn m a c
-(~>) w1 w2 = Yarn $ \dt a -> do Output b w1' <- stepYarn w1 dt a
-                                Output c w2' <- stepYarn w2 dt b
-                                return $ Output c $ w1' ~> w2'
+(~>) :: Monad m => Yarn t m a b -> Yarn t m b c -> Yarn t m a c
+(~>) (Yarn y1) (Yarn y2) = {-# SCC "pure~>" #-} Yarn $ y2 . y1
+(~>) y1 y2 = Yarntaom $ \dt a -> do
+    Output b y1' <- stepYarn y1 dt a
+    Output c y2' <- stepYarn y2 dt b
+    return $ Output c $ y1' ~> y2'
 infixr 1 ~>
---------------------------------------------------------------------------------
--- Constructing pure Yarn
---------------------------------------------------------------------------------
-yarn :: Monad m => (a -> b) -> Yarn m a b
-yarn = pureYarn
-
-pureYarn :: Monad m => (a -> b) -> Yarn m a b
-pureYarn f = valYarn $ \a -> Output (f a) (pureYarn f)
-
-valYarn :: Monad m => (a -> Output m a b) -> Yarn m a b
-valYarn f = timeYarn $ \_ a -> f a
-
-timeYarn :: (Monad m, RealFloat t) => (t -> a -> Output m a b) -> Yarn m a b
-timeYarn f = Yarn $ \dt a -> return $ f dt a
---------------------------------------------------------------------------------
--- Constructing effectful Yarn
---------------------------------------------------------------------------------
-yarnM :: Monad m => m b -> Yarn m a b
-yarnM = valYarnM . const
-
-valYarnM :: Monad m => (a -> m b) -> Yarn m a b
-valYarnM = timeYarnM . const
-
-timeYarnM :: (RealFloat t, Monad m) => (t -> a -> m b) -> Yarn m a b
-timeYarnM f = Yarn $ \dt a -> do b <- f dt a
-                                 return $ Output b $ timeYarnM f
 --------------------------------------------------------------------------------
 -- Help inspecting Yarn balls
 --------------------------------------------------------------------------------
-traceYarn :: (Show a, Monad m) => Yarn m a a
+-- | A yarn that traces its input when stepped and outputs that value.
+traceYarn :: (Show a, Monad m) => Yarn t m a a
 traceYarn = traceYarnWith ""
 
-traceYarnWith :: (Show a, Monad m) => String -> Yarn m a a
-traceYarnWith str = yarn $ \a -> trace (str ++ show a) a
+-- | A yarn that traces its input along with an identifying string and
+-- outputs the input value.
+traceYarnWith :: (Show a, Monad m) => String -> Yarn t m a a
+traceYarnWith str = Yarn $ \a -> trace (str ++ show a) a
 
-testYarn :: Show b => Yarn IO () b -> IO b
-testYarn = testYarnTill (1000000000 :: Double)
+-- | Tests a yarn in an IO loop for a long time.
+testYarn :: Show b => Yarn Double IO () b -> IO b
+testYarn = testYarnTill 1000000000
 
-testYarnTill :: (Show b, RealFloat t) => t -> Yarn IO () b -> IO b
+-- | Tests a yarn in an IO loop for the given number of seconds.
+testYarnTill :: Show b => Double -> Yarn Double IO () b -> IO b
 testYarnTill secs w = do
     t <- getCurrentTime
     loopYarn t 0 w
@@ -117,28 +127,63 @@ testYarnTill secs w = do
                                      then do putStrLn "Last value: "
                                              return b
                                      else loopYarn t'' (tt + dt) w''
+
+-- | Tests a yarn step by step in a user controlled IO loop.
+stepTestYarn :: (Show b) => Yarn Double IO () b -> IO ()
+stepTestYarn y = do
+    putStr "\ntime delta: "
+    t <- getLine
+    let dt = read t :: Double
+    Output b y' <- stepYarn y dt ()
+    putStrLn $ show b
+    stepTestYarn y'
 --------------------------------------------------------------------------------
 -- Running Yarn
 --------------------------------------------------------------------------------
-execYarn :: (Monad m, Functor m, RealFloat t) => Yarn m a b -> t -> a -> m b
-execYarn w dt a = fmap outVal $ stepYarn w dt a
+-- | Evaluate the given yarn once with the given time and input value.
+-- Throws away the resulting output yarn and keeps the resulting output value.
+evalYarn :: (Monad m, Functor m, RealFloat t) => Yarn t m a b -> t -> a -> m b
+evalYarn w dt a = fmap outVal $ stepYarn w dt a
 
-stepYarn :: (RealFloat t, Monad m) => Yarn m a b -> t -> a -> m (Output m a b)
-stepYarn (Yarn w) dt a = w (realToFrac dt) a
+-- | Execute the given yarn once with the given time and input value.
+-- Throws away the resulting output yarn and keeps the resulting output value.
+execYarn :: (Monad m, Functor m, RealFloat t) => Yarn t m a b -> t -> a
+         -> m (Yarn t m a b)
+execYarn w dt a = fmap outYarn $ stepYarn w dt a
+
+-- | Step the given yarn by a discreet time step and a given input value.
+stepYarn :: Monad m => Yarn t m a b -> t -> a -> m (Output t m a b)
+stepYarn (Yarn y) _ a = return $ Output (y a) $ Yarn y
+stepYarn (Yarnt y) dt _ = return $ Output (y dt) $ Yarnt y
+stepYarn (Yarnta y) dt a = return $ Output (y dt a) $ Yarnta y
+stepYarn (Yarntao y) dt a = return $ y dt a
+stepYarn (Yarntaom y) dt a = y dt a
 --------------------------------------------------------------------------------
 -- Yarn basics
 --------------------------------------------------------------------------------
-time :: (Monad m, RealFloat t) => Yarn m a t
+constant :: Monad m => b -> Yarn t m a b
+constant = arr . const
+
+-- | A yarn that outputs time elapsed 0.
+time :: (Num t, Monad m) => Yarn t m a t
 time = timeFrom 0
 
-timeFrom :: RealFloat t => Monad m => t -> Yarn m a t
-timeFrom t = Yarn $ \dt _ ->
-    let t' = t + dt in
-    return $ Output t' (timeFrom t')
+-- | A yarn that outputs time elapsed since the given time.
+timeFrom :: (Num t, Monad m) => t -> Yarn t m a t
+timeFrom t = Yarntao $ \dt _ ->
+    let t' = t + dt in Output t' (timeFrom t')
 
-data Output m a b = Output { outVal  :: b
-                           , outYarn :: (Yarn m a b)
-                           }
+-- | A result type of a discreet time step. A yarn produces this type which
+-- encodes the value at that step as well as a yarn for the next step.
+data Output t m a b = Output { outVal  :: !b
+                             , outYarn :: (Yarn t m a b)
+                             }
 
-data Yarn m a b where
-    Yarn :: RealFloat t => (t -> a -> m (Output m a b)) -> Yarn m a b
+-- | Various yarn constructors.
+data Yarn t m a b where
+    Yarn     :: (a -> b) -> Yarn t m a b
+    Yarnt    :: (t -> b) -> Yarn t m a b
+    Yarnta   :: (t -> a -> b) -> Yarn t m a b
+    Yarntao  :: (t -> a -> Output t m a b) -> Yarn t m a b
+    Yarntaom :: (t -> a -> m (Output t m a b)) -> Yarn t m a b
+    deriving (Typeable)

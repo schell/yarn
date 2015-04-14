@@ -1,8 +1,7 @@
 module Yarn (
-    module W
+    module Y
 ) where
 
-import Yarn.Core as W
-import Yarn.Control as W
-import Yarn.Event as W
-import Yarn.Tween as W
+import Yarn.Core as Y
+import Yarn.Event as Y
+import Yarn.Tween as Y
