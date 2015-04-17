@@ -78,3 +78,11 @@ executable example
   build-depends:       base >=4.7 && < 4.9,
                        time,
                        ekg
+
+executable benchmarks
+  default-language:    Haskell2010
+  main-is:             Yarn/Benchmarks.hs
+  build-depends:       base >=4.7 && < 4.9,
+                       time,
+                       criterion,
+                       mtl

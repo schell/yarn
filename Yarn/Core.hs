@@ -142,12 +142,12 @@ stepTestYarn y = do
 --------------------------------------------------------------------------------
 -- | Evaluate the given yarn once with the given time and input value.
 -- Throws away the resulting output yarn and keeps the resulting output value.
-evalYarn :: (Monad m, Functor m, RealFloat t) => Yarn t m a b -> t -> a -> m b
+evalYarn :: (Monad m, Functor m) => Yarn t m a b -> t -> a -> m b
 evalYarn w dt a = fmap outVal $ stepYarn w dt a
 
 -- | Execute the given yarn once with the given time and input value.
 -- Throws away the resulting output yarn and keeps the resulting output value.
-execYarn :: (Monad m, Functor m, RealFloat t) => Yarn t m a b -> t -> a
+execYarn :: (Monad m, Functor m) => Yarn t m a b -> t -> a
          -> m (Yarn t m a b)
 execYarn w dt a = fmap outYarn $ stepYarn w dt a
 
